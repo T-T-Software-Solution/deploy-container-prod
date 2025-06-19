@@ -1,0 +1,192 @@
+name: Copy ACR Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_name:
+        description: 'Container image name (with or without tag)'
+        required: true
+        type: string
+        default: 'myorg/api'
+      version:
+        description: 'Version tag to apply to target image'
+        required: true
+        type: string
+        default: '1.0.0'
+      dry_run:
+        description: 'Enable dry-run mode (shows what would be done without executing)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Use input values or fall back to repository secrets
+  IMAGE_NAME: ${{ github.event.inputs.image_name }}
+  VERSION: ${{ github.event.inputs.version }}
+  SOURCE_ACR: ${{ github.event.inputs.source_acr || secrets.SOURCE_ACR }}
+  TARGET_ACR: ${{ github.event.inputs.target_acr || secrets.TARGET_ACR }}
+  DRY_RUN: ${{ github.event.inputs.dry_run }}
+
+jobs:
+  copy-acr-image:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate environment variables
+        run: |
+          if [ -z "$IMAGE_NAME" ]; then
+            echo "❌ IMAGE_NAME is required"
+            exit 1
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "❌ VERSION is required"
+            exit 1
+          fi
+          if [ -z "$SOURCE_ACR" ]; then
+            echo "❌ SOURCE_ACR is required (set as repository secret or workflow input)"
+            exit 1
+          fi
+          if [ -z "$TARGET_ACR" ]; then
+            echo "❌ TARGET_ACR is required (set as repository secret or workflow input)"
+            exit 1
+          fi
+          
+          echo "✅ Environment validation passed"
+          echo "📋 Configuration:"
+          echo "   Image: $IMAGE_NAME"
+          echo "   Version: $VERSION"
+          echo "   Source ACR: $SOURCE_ACR"
+          echo "   Target ACR: $TARGET_ACR"
+          echo "   Dry Run: $DRY_RUN"
+          echo "   Mode: Two-step (pull then push)"
+
+      - name: Setup Docker
+        run: |
+          echo "🐳 Verifying Docker installation..."
+          docker --version
+          echo "✅ Docker is available"
+
+      - name: Azure CLI Login (Source ACR)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIAL_SOURCE_ACR }} 
+
+      - name: Verify Source Azure CLI authentication
+        run: |
+          echo "🔍 Verifying Azure CLI authentication for source ACR..."
+          az account show --output table
+          echo "✅ Source Azure CLI authentication verified"
+
+      - name: Pull and Tag Image
+        run: |
+          echo "🚀 Starting image pull and tag process..."
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "🔍 Running in DRY RUN mode - no actual changes will be made"
+          fi
+          
+          pnpm copy-acr
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          VERSION: ${{ env.VERSION }}
+          SOURCE_ACR: ${{ env.SOURCE_ACR }}
+          TARGET_ACR: ${{ env.TARGET_ACR }}
+          DRY_RUN: ${{ env.DRY_RUN }}
+          MODE: pull
+          SKIP_AUTH: true
+
+      - name: Azure CLI Login (Target ACR)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIAL_TARGET_ACR }}
+
+      - name: Verify Target Azure CLI authentication
+        run: |
+          echo "🔍 Verifying Azure CLI authentication for target ACR..."
+          az account show --output table
+          echo "✅ Target Azure CLI authentication verified"
+
+      - name: Push Image
+        run: |
+          echo "🚀 Starting image push process..."
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "🔍 Running in DRY RUN mode - no actual changes will be made"
+          fi
+          
+          pnpm copy-acr
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          VERSION: ${{ env.VERSION }}
+          SOURCE_ACR: ${{ env.SOURCE_ACR }}
+          TARGET_ACR: ${{ env.TARGET_ACR }}
+          DRY_RUN: ${{ env.DRY_RUN }}
+          MODE: push
+          SKIP_AUTH: true
+
+      - name: Cleanup Docker images (if not dry run)
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          echo "🧹 Cleaning up local Docker images..."
+          
+          # Clean up source image
+          SOURCE_IMAGE="${SOURCE_ACR}/${IMAGE_NAME}"
+          if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "${SOURCE_IMAGE}"; then
+            echo "Removing source image: ${SOURCE_IMAGE}"
+            docker rmi "${SOURCE_IMAGE}" || echo "Failed to remove ${SOURCE_IMAGE}"
+          fi
+          
+          # Clean up target image (extract base name for tagging)
+          IMAGE_BASE=$(echo "${IMAGE_NAME}" | cut -d':' -f1)
+          TARGET_IMAGE="${TARGET_ACR}/${IMAGE_BASE}:${VERSION}"
+          if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "${TARGET_IMAGE}"; then
+            echo "Removing target image: ${TARGET_IMAGE}"
+            docker rmi "${TARGET_IMAGE}" || echo "Failed to remove ${TARGET_IMAGE}"
+          fi
+          
+          echo "✅ Cleanup completed"
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          VERSION: ${{ env.VERSION }}
+          SOURCE_ACR: ${{ env.SOURCE_ACR }}
+          TARGET_ACR: ${{ env.TARGET_ACR }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "📊 ACR Copy Workflow Summary"
+          echo "================================"
+          echo "Image: ${{ env.IMAGE_NAME }}"
+          echo "Version: ${{ env.VERSION }}"
+          echo "Source ACR: ${{ env.SOURCE_ACR }}"
+          echo "Target ACR: ${{ env.TARGET_ACR }}"
+          echo "Dry Run: ${{ env.DRY_RUN }}"
+          echo "Mode: Two-step (pull then push)"
+          echo "Status: ${{ job.status }}"
+          echo "================================"
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "✅ Dry run completed successfully - no actual changes were made"
+            else
+              IMAGE_BASE=$(echo "$IMAGE_NAME" | cut -d':' -f1)
+              echo "✅ Image successfully copied to: $TARGET_ACR/$IMAGE_BASE:$VERSION"
+            fi
+          else
+            echo "❌ Workflow failed - check the logs above for details"
+          fi
