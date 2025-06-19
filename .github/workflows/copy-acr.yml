@@ -91,7 +91,7 @@ jobs:
           az account show --output table
           echo "✅ Source Azure CLI authentication verified"
 
-      - name: Pull and Tag Image
+      - name: Pull Image
         run: |
           echo "🚀 Starting image pull and tag process..."
           if [ "$DRY_RUN" = "true" ]; then
@@ -106,6 +106,23 @@ jobs:
           TARGET_ACR: ${{ env.TARGET_ACR }}
           DRY_RUN: ${{ env.DRY_RUN }}
           MODE: pull
+          SKIP_AUTH: true
+
+      - name: Tag Image
+        run: |
+          echo "🚀 Starting image tag process..."
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "🔍 Running in DRY RUN mode - no actual changes will be made"
+          fi
+          
+          pnpm copy-acr
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          VERSION: ${{ env.VERSION }}
+          SOURCE_ACR: ${{ env.SOURCE_ACR }}
+          TARGET_ACR: ${{ env.TARGET_ACR }}
+          DRY_RUN: ${{ env.DRY_RUN }}
+          MODE: tag
           SKIP_AUTH: true
 
       - name: Azure CLI Login (Target ACR)

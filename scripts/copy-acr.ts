@@ -9,13 +9,13 @@ const envSchema = z.object({
   SOURCE_ACR: z.string().min(1, 'SOURCE_ACR is required'),
   TARGET_ACR: z.string().min(1, 'TARGET_ACR is required'),
   DRY_RUN: z.string().optional().transform(val => val === 'true'),
-  MODE: z.enum(['pull', 'push']).optional(),
+  MODE: z.enum(['pull', 'push', 'tag']).optional(),
   SKIP_AUTH: z.string().optional().transform(val => val === 'true')
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
 
-type Mode = 'pull' | 'push' | 'full';
+type Mode = 'pull' | 'push' | 'full' | 'tag';
 
 interface CopyAcrOptions {
   imageName: string;
@@ -127,6 +127,7 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
   try {
     const imageBase = imageName.includes(':') ? imageName.split(':')[0] : imageName;
     const finalTarget = `${targetAcr}/${imageBase}:${version}`;
+    const sourceImage = `${sourceAcr}/${imageName}:${version}`;
 
     switch (mode) {
       case 'pull': {
@@ -143,6 +144,13 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
         await authenticateAcr(targetAcr, dryRun, skipAuth);
         await pushImage(finalTarget, dryRun);
         console.log(`✅ Push completed: ${finalTarget}`);
+        break;
+      }
+
+      case 'tag': {
+        console.log(`🔄 Running in TAG mode: ${imageName} → ${finalTarget}`);
+        const targetImage = await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
+        console.log(`✅ Tag completed: ${sourceImage} tagged as ${targetImage}`);
         break;
       }
 
