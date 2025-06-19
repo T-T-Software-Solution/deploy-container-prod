@@ -51,6 +51,10 @@
     "README.md",
     "package.json"
   ],
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=22"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/thaitype/minimal-typescript-node-esm-starter.git"
