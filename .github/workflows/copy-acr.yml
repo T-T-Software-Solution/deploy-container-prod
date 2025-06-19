@@ -36,6 +36,7 @@ env:
   SOURCE_ACR: ${{ github.event.inputs.source_acr || secrets.SOURCE_ACR }}
   TARGET_ACR: ${{ github.event.inputs.target_acr || secrets.TARGET_ACR }}
   DRY_RUN: ${{ github.event.inputs.dry_run }}
+  MODE: ${{ github.event.inputs.mode }}
 
 jobs:
   copy-acr-image:
@@ -85,6 +86,7 @@ jobs:
           echo "   Source ACR: $SOURCE_ACR"
           echo "   Target ACR: $TARGET_ACR"
           echo "   Dry Run: $DRY_RUN"
+          echo "   Mode: ${MODE:-full}"
 
       - name: Azure CLI Login
         uses: azure/login@v2
@@ -123,6 +125,7 @@ jobs:
           SOURCE_ACR: ${{ env.SOURCE_ACR }}
           TARGET_ACR: ${{ env.TARGET_ACR }}
           DRY_RUN: ${{ env.DRY_RUN }}
+          MODE: ${{ env.MODE }}
 
       - name: Cleanup Docker images (if not dry run)
         if: ${{ github.event.inputs.dry_run != 'true' }}
