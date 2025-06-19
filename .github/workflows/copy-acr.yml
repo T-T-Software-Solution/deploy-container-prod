@@ -13,16 +13,6 @@ on:
         required: true
         type: string
         default: '1.0.0'
-      source_acr:
-        description: 'Source ACR URL (leave empty to use default)'
-        required: false
-        type: string
-        default: ''
-      target_acr:
-        description: 'Target ACR URL (leave empty to use default)'
-        required: false
-        type: string
-        default: ''
       dry_run:
         description: 'Enable dry-run mode (shows what would be done without executing)'
         required: false
@@ -36,7 +26,6 @@ env:
   SOURCE_ACR: ${{ github.event.inputs.source_acr || secrets.SOURCE_ACR }}
   TARGET_ACR: ${{ github.event.inputs.target_acr || secrets.TARGET_ACR }}
   DRY_RUN: ${{ github.event.inputs.dry_run }}
-  MODE: ${{ github.event.inputs.mode }}
 
 jobs:
   copy-acr-image:
@@ -50,7 +39,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: 'pnpm'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -86,24 +75,7 @@ jobs:
           echo "   Source ACR: $SOURCE_ACR"
           echo "   Target ACR: $TARGET_ACR"
           echo "   Dry Run: $DRY_RUN"
-          echo "   Mode: ${MODE:-full}"
-
-      - name: Azure CLI Login
-        uses: azure/login@v2
-        with:
-          creds: |
-            {
-              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
-              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
-              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
-              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
-            }
-
-      - name: Verify Azure CLI authentication
-        run: |
-          echo "🔍 Verifying Azure CLI authentication..."
-          az account show --output table
-          echo "✅ Azure CLI authentication verified"
+          echo "   Mode: Two-step (pull then push)"
 
       - name: Setup Docker
         run: |
@@ -111,9 +83,20 @@ jobs:
           docker --version
           echo "✅ Docker is available"
 
-      - name: Run ACR Copy Script
+      - name: Azure CLI Login (Source ACR)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIAL_SOURCE_ACR }} 
+
+      - name: Verify Source Azure CLI authentication
         run: |
-          echo "🚀 Starting ACR image copy process..."
+          echo "🔍 Verifying Azure CLI authentication for source ACR..."
+          az account show --output table
+          echo "✅ Source Azure CLI authentication verified"
+
+      - name: Pull and Tag Image
+        run: |
+          echo "🚀 Starting image pull and tag process..."
           if [ "$DRY_RUN" = "true" ]; then
             echo "🔍 Running in DRY RUN mode - no actual changes will be made"
           fi
@@ -125,7 +108,36 @@ jobs:
           SOURCE_ACR: ${{ env.SOURCE_ACR }}
           TARGET_ACR: ${{ env.TARGET_ACR }}
           DRY_RUN: ${{ env.DRY_RUN }}
-          MODE: ${{ env.MODE }}
+          MODE: pull
+          SKIP_AUTH: true
+
+      - name: Azure CLI Login (Target ACR)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIAL_TARGET_ACR }}
+
+      - name: Verify Target Azure CLI authentication
+        run: |
+          echo "🔍 Verifying Azure CLI authentication for target ACR..."
+          az account show --output table
+          echo "✅ Target Azure CLI authentication verified"
+
+      - name: Push Image
+        run: |
+          echo "🚀 Starting image push process..."
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "🔍 Running in DRY RUN mode - no actual changes will be made"
+          fi
+          
+          pnpm copy-acr
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          VERSION: ${{ env.VERSION }}
+          SOURCE_ACR: ${{ env.SOURCE_ACR }}
+          TARGET_ACR: ${{ env.TARGET_ACR }}
+          DRY_RUN: ${{ env.DRY_RUN }}
+          MODE: push
+          SKIP_AUTH: true
 
       - name: Cleanup Docker images (if not dry run)
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -164,6 +176,7 @@ jobs:
           echo "Source ACR: ${{ env.SOURCE_ACR }}"
           echo "Target ACR: ${{ env.TARGET_ACR }}"
           echo "Dry Run: ${{ env.DRY_RUN }}"
+          echo "Mode: Two-step (pull then push)"
           echo "Status: ${{ job.status }}"
           echo "================================"
           

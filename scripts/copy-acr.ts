@@ -9,7 +9,8 @@ const envSchema = z.object({
   SOURCE_ACR: z.string().min(1, 'SOURCE_ACR is required'),
   TARGET_ACR: z.string().min(1, 'TARGET_ACR is required'),
   DRY_RUN: z.string().optional().transform(val => val === 'true'),
-  MODE: z.enum(['pull', 'push']).optional()
+  MODE: z.enum(['pull', 'push']).optional(),
+  SKIP_AUTH: z.string().optional().transform(val => val === 'true')
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
@@ -23,6 +24,7 @@ interface CopyAcrOptions {
   targetAcr: string;
   dryRun: boolean;
   mode: Mode;
+  skipAuth: boolean;
 }
 
 class AcrCopyError extends Error {
@@ -47,7 +49,12 @@ async function validateEnvironment(): Promise<EnvConfig> {
   }
 }
 
-async function authenticateAcr(acrUrl: string, dryRun: boolean): Promise<void> {
+async function authenticateAcr(acrUrl: string, dryRun: boolean, skipAuth: boolean): Promise<void> {
+  if (skipAuth) {
+    console.log(`⏭️  Skipping authentication to ${acrUrl} (handled externally)`);
+    return;
+  }
+
   if (dryRun) {
     console.log(`🔍 [DRY RUN] Would authenticate to ${acrUrl}`);
     return;
@@ -115,7 +122,7 @@ async function pushImage(targetImage: string, dryRun: boolean): Promise<void> {
 }
 
 export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
-  const { imageName, version, sourceAcr, targetAcr, dryRun, mode } = options;
+  const { imageName, version, sourceAcr, targetAcr, dryRun, mode, skipAuth } = options;
 
   try {
     const imageBase = imageName.includes(':') ? imageName.split(':')[0] : imageName;
@@ -124,7 +131,7 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
     switch (mode) {
       case 'pull': {
         console.log(`🔄 Running in PULL mode: ${imageName}`);
-        await authenticateAcr(sourceAcr, dryRun);
+        await authenticateAcr(sourceAcr, dryRun, skipAuth);
         const sourceImage = await pullImage(sourceAcr, imageName, dryRun);
         await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
         console.log(`✅ Pull completed: ${imageName} pulled and tagged as ${finalTarget}`);
@@ -133,7 +140,7 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
       
       case 'push': {
         console.log(`🔄 Running in PUSH mode: ${finalTarget}`);
-        await authenticateAcr(targetAcr, dryRun);
+        await authenticateAcr(targetAcr, dryRun, skipAuth);
         await pushImage(finalTarget, dryRun);
         console.log(`✅ Push completed: ${finalTarget}`);
         break;
@@ -142,8 +149,8 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
       case 'full':
       default: {
         console.log(`🔄 Running in FULL mode: ${imageName} → ${finalTarget}`);
-        await authenticateAcr(sourceAcr, dryRun);
-        await authenticateAcr(targetAcr, dryRun);
+        await authenticateAcr(sourceAcr, dryRun, skipAuth);
+        await authenticateAcr(targetAcr, dryRun, skipAuth);
 
         const sourceImage = await pullImage(sourceAcr, imageName, dryRun);
         const targetImage = await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
@@ -175,7 +182,8 @@ async function main(): Promise<void> {
     sourceAcr: env.SOURCE_ACR,
     targetAcr: env.TARGET_ACR,
     dryRun: env.DRY_RUN || false,
-    mode: env.MODE || 'full'
+    mode: env.MODE || 'full',
+    skipAuth: env.SKIP_AUTH || false
   });
 }
 
