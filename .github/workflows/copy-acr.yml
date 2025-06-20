@@ -106,7 +106,7 @@ jobs:
           TARGET_ACR: ${{ env.TARGET_ACR }}
           DRY_RUN: ${{ env.DRY_RUN }}
           MODE: pull
-          SKIP_AUTH: true
+          SKIP_AUTH: false
 
       - name: Tag Image
         run: |
@@ -151,7 +151,7 @@ jobs:
           TARGET_ACR: ${{ env.TARGET_ACR }}
           DRY_RUN: ${{ env.DRY_RUN }}
           MODE: push
-          SKIP_AUTH: true
+          SKIP_AUTH: false
 
       - name: Cleanup Docker images (if not dry run)
         if: ${{ github.event.inputs.dry_run != 'true' }}
