@@ -1,5 +1,5 @@
 name: Copy ACR Image
-run-name: 'Copy Container image name: ${{ inputs.image_name }}[inputs.version] by @${{ github.actor }}'
+run-name: 'Copy Container image name: ${{ inputs.image_name }}[${{ inputs.version }}] by @${{ github.actor }}'
 on:
   workflow_dispatch:
     inputs:
