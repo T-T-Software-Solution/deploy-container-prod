@@ -23,7 +23,7 @@ env:
   # Use input values or fall back to repository secrets
   IMAGE_NAME: ${{ github.event.inputs.image_name }}
   VERSION: ${{ github.event.inputs.version }}
-  SOURCE_ACR: easyinsuredev.azurecr.io # On Ponggun Azure Directory
+  SOURCE_ACR: ttshareddev-erdthgbdeecnh2c3.azurecr.io # On Nakorn Azure Directory
   TARGET_ACR: ttshared-hxcfc7b6cfchfbe3.azurecr.io # On Nakorn Azure Directory
   DRY_RUN: ${{ github.event.inputs.dry_run }}
 
