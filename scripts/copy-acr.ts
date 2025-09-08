@@ -22,8 +22,8 @@ type Mode = 'pull' | 'push' | 'full' | 'tag';
 interface CopyAcrOptions {
   imageName: string;
   version: string;
-  sourceAcr: string;
-  targetAcr: string;
+  sourceRegistryUrl: string;
+  targetRegistryUrl: string;
   dryRun: boolean;
   mode: Mode;
   skipAuth: boolean;
@@ -124,26 +124,26 @@ async function pushImage(targetImage: string, dryRun: boolean): Promise<void> {
 }
 
 export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
-  const { imageName, version, sourceAcr, targetAcr, dryRun, mode, skipAuth } = options;
+  const { imageName, version, sourceRegistryUrl, targetRegistryUrl, dryRun, mode, skipAuth } = options;
 
   try {
     const imageBase = imageName.includes(':') ? imageName.split(':')[0] : imageName;
-    const finalTarget = `${targetAcr}/${imageBase}:${version}`;
-    const sourceImage = `${sourceAcr}/${imageName}:${version}`;
+    const finalTarget = `${targetRegistryUrl}/${imageBase}:${version}`;
+    const sourceImage = `${sourceRegistryUrl}/${imageName}:${version}`;
 
     switch (mode) {
       case 'pull': {
         console.log(`🔄 Running in PULL mode: ${imageName}`);
-        await authenticateAcr(sourceAcr, dryRun, skipAuth);
-        const sourceImage = await pullImage(sourceAcr, imageName, version, dryRun);
-        await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
+        await authenticateAcr(sourceRegistryUrl, dryRun, skipAuth);
+        const sourceImage = await pullImage(sourceRegistryUrl, imageName, version, dryRun);
+        await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
         console.log(`✅ Pull completed: ${imageName} pulled and tagged as ${finalTarget}`);
         break;
       }
 
       case 'push': {
         console.log(`🔄 Running in PUSH mode: ${finalTarget}`);
-        await authenticateAcr(targetAcr, dryRun, skipAuth);
+        await authenticateAcr(targetRegistryUrl, dryRun, skipAuth);
         await pushImage(finalTarget, dryRun);
         console.log(`✅ Push completed: ${finalTarget}`);
         break;
@@ -151,7 +151,7 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
 
       case 'tag': {
         console.log(`🔄 Running in TAG mode: ${imageName} → ${finalTarget}`);
-        const targetImage = await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
+        const targetImage = await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
         console.log(`✅ Tag completed: ${sourceImage} tagged as ${targetImage}`);
         break;
       }
@@ -159,11 +159,11 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
       case 'full':
       default: {
         console.log(`🔄 Running in FULL mode: ${imageName} → ${finalTarget}`);
-        await authenticateAcr(sourceAcr, dryRun, skipAuth);
-        await authenticateAcr(targetAcr, dryRun, skipAuth);
+        await authenticateAcr(sourceRegistryUrl, dryRun, skipAuth);
+        await authenticateAcr(targetRegistryUrl, dryRun, skipAuth);
 
-        const sourceImage = await pullImage(sourceAcr, imageName, version, dryRun);
-        const targetImage = await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
+        const sourceImage = await pullImage(sourceRegistryUrl, imageName, version, dryRun);
+        const targetImage = await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
         await pushImage(targetImage, dryRun);
 
         console.log(`✅ Copy completed: ${imageName} → ${finalTarget}`);
@@ -189,8 +189,8 @@ async function main(): Promise<void> {
   await copyAcrImage({
     imageName: env.IMAGE_NAME,
     version: env.VERSION,
-    sourceAcr: env.SOURCE_CONTAINER_REGISTRY_URL,
-    targetAcr: env.TARGET_CONTAINER_REGISTRY_URL,
+    sourceRegistryUrl: env.SOURCE_CONTAINER_REGISTRY_URL,
+    targetRegistryUrl: env.TARGET_CONTAINER_REGISTRY_URL,
     dryRun: env.DRY_RUN || false,
     mode: env.MODE || 'full',
     skipAuth: env.SKIP_AUTH || false
