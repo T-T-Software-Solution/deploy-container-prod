@@ -22,7 +22,21 @@ type Mode = 'pull' | 'push' | 'full' | 'tag';
 interface CopyAcrOptions {
   imageName: string;
   version: string;
+  /**
+   * The name of the source Azure Container Registry (e.g., mysourceacr)
+   */
+  sourceAcrResourceName: string;
+  /**
+   * The name of the target Azure Container Registry (e.g., mytargetacr)
+   */
+  targetAcrResourceName: string;
+  /**
+   * The URL of the source Azure Container Registry (e.g., mysourceacr-ef9348.azurecr.io)
+   */
   sourceRegistryUrl: string;
+  /**
+   * The URL of the target Azure Container Registry (e.g., mytargetacr-ef9348.azurecr.io)
+   * */
   targetRegistryUrl: string;
   dryRun: boolean;
   mode: Mode;
@@ -51,23 +65,23 @@ async function validateEnvironment(): Promise<EnvConfig> {
   }
 }
 
-async function authenticateAcr(acrUrl: string, dryRun: boolean, skipAuth: boolean): Promise<void> {
+async function authenticateAcr(acrResourceName: string, dryRun: boolean, skipAuth: boolean): Promise<void> {
   if (skipAuth) {
-    console.log(`⏭️  Skipping authentication to ${acrUrl} (handled externally)`);
+    console.log(`⏭️  Skipping authentication to ${acrResourceName} (handled externally)`);
     return;
   }
 
   if (dryRun) {
-    console.log(`🔍 [DRY RUN] Would authenticate to ${acrUrl}`);
+    console.log(`🔍 [DRY RUN] Would authenticate to ${acrResourceName}`);
     return;
   }
 
   try {
-    console.log(`🔍 Authenticating to ${acrUrl}...`);
-    await execa('az', ['acr', 'login', '--name', acrUrl.replace('.azurecr.io', '')]);
-    console.log(`✅ Authenticated to ${acrUrl}`);
+    console.log(`🔍 Authenticating to ${acrResourceName}...`);
+    await execa('az', ['acr', 'login', '--name', acrResourceName]);
+    console.log(`✅ Authenticated to ${acrResourceName}`);
   } catch (error) {
-    throw new AcrCopyError(`Failed to authenticate to ${acrUrl}`, error as Error);
+    throw new AcrCopyError(`Failed to authenticate to ${acrResourceName}`, error as Error);
   }
 }
 
@@ -124,7 +138,7 @@ async function pushImage(targetImage: string, dryRun: boolean): Promise<void> {
 }
 
 export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
-  const { imageName, version, sourceRegistryUrl, targetRegistryUrl, dryRun, mode, skipAuth } = options;
+  const { imageName, version, sourceRegistryUrl, targetRegistryUrl, dryRun, mode, skipAuth, sourceAcrResourceName, targetAcrResourceName } = options;
 
   try {
     const imageBase = imageName.includes(':') ? imageName.split(':')[0] : imageName;
@@ -134,7 +148,7 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
     switch (mode) {
       case 'pull': {
         console.log(`🔄 Running in PULL mode: ${imageName}`);
-        await authenticateAcr(sourceRegistryUrl, dryRun, skipAuth);
+        await authenticateAcr(sourceAcrResourceName, dryRun, skipAuth);
         const sourceImage = await pullImage(sourceRegistryUrl, imageName, version, dryRun);
         await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
         console.log(`✅ Pull completed: ${imageName} pulled and tagged as ${finalTarget}`);
@@ -143,7 +157,7 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
 
       case 'push': {
         console.log(`🔄 Running in PUSH mode: ${finalTarget}`);
-        await authenticateAcr(targetRegistryUrl, dryRun, skipAuth);
+        await authenticateAcr(targetAcrResourceName, dryRun, skipAuth);
         await pushImage(finalTarget, dryRun);
         console.log(`✅ Push completed: ${finalTarget}`);
         break;
@@ -159,8 +173,8 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
       case 'full':
       default: {
         console.log(`🔄 Running in FULL mode: ${imageName} → ${finalTarget}`);
-        await authenticateAcr(sourceRegistryUrl, dryRun, skipAuth);
-        await authenticateAcr(targetRegistryUrl, dryRun, skipAuth);
+        await authenticateAcr(sourceAcrResourceName, dryRun, skipAuth);
+        await authenticateAcr(targetAcrResourceName, dryRun, skipAuth);
 
         const sourceImage = await pullImage(sourceRegistryUrl, imageName, version, dryRun);
         const targetImage = await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
@@ -189,6 +203,8 @@ async function main(): Promise<void> {
   await copyAcrImage({
     imageName: env.IMAGE_NAME,
     version: env.VERSION,
+    sourceAcrResourceName: env.SOURCE_ACR_RESOURCE_NAME,
+    targetAcrResourceName: env.TARGET_ACR_RESOURCE_NAME,
     sourceRegistryUrl: env.SOURCE_CONTAINER_REGISTRY_URL,
     targetRegistryUrl: env.TARGET_CONTAINER_REGISTRY_URL,
     dryRun: env.DRY_RUN || false,
