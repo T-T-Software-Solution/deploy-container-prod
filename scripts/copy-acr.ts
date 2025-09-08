@@ -6,8 +6,10 @@ import { z } from 'zod';
 const envSchema = z.object({
   IMAGE_NAME: z.string().min(1, 'IMAGE_NAME is required'),
   VERSION: z.string().min(1, 'VERSION is required'),
-  SOURCE_ACR: z.string().min(1, 'SOURCE_ACR is required'),
-  TARGET_ACR: z.string().min(1, 'TARGET_ACR is required'),
+  SOURCE_ACR_RESOURCE_NAME: z.string().min(1, 'SOURCE_ACR_RESOURCE_NAME is required'),
+  TARGET_ACR_RESOURCE_NAME: z.string().min(1, 'TARGET_ACR_RESOURCE_NAME is required'),
+  SOURCE_CONTAINER_REGISTRY_URL: z.string().min(1, 'SOURCE_CONTAINER_REGISTRY_URL is required'),
+  TARGET_CONTAINER_REGISTRY_URL: z.string().min(1, 'TARGET_CONTAINER_REGISTRY_URL is required'),
   DRY_RUN: z.string().optional().transform(val => val === 'true'),
   MODE: z.enum(['pull', 'push', 'tag']).optional(),
   SKIP_AUTH: z.string().optional().transform(val => val === 'true')
@@ -187,8 +189,8 @@ async function main(): Promise<void> {
   await copyAcrImage({
     imageName: env.IMAGE_NAME,
     version: env.VERSION,
-    sourceAcr: env.SOURCE_ACR,
-    targetAcr: env.TARGET_ACR,
+    sourceAcr: env.SOURCE_CONTAINER_REGISTRY_URL,
+    targetAcr: env.TARGET_CONTAINER_REGISTRY_URL,
     dryRun: env.DRY_RUN || false,
     mode: env.MODE || 'full',
     skipAuth: env.SKIP_AUTH || false
