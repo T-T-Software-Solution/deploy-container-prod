@@ -6,8 +6,10 @@ import { z } from 'zod';
 const envSchema = z.object({
   IMAGE_NAME: z.string().min(1, 'IMAGE_NAME is required'),
   VERSION: z.string().min(1, 'VERSION is required'),
-  SOURCE_ACR: z.string().min(1, 'SOURCE_ACR is required'),
-  TARGET_ACR: z.string().min(1, 'TARGET_ACR is required'),
+  SOURCE_ACR_RESOURCE_NAME: z.string().min(1, 'SOURCE_ACR_RESOURCE_NAME is required'),
+  TARGET_ACR_RESOURCE_NAME: z.string().min(1, 'TARGET_ACR_RESOURCE_NAME is required'),
+  SOURCE_CONTAINER_REGISTRY_URL: z.string().min(1, 'SOURCE_CONTAINER_REGISTRY_URL is required'),
+  TARGET_CONTAINER_REGISTRY_URL: z.string().min(1, 'TARGET_CONTAINER_REGISTRY_URL is required'),
   DRY_RUN: z.string().optional().transform(val => val === 'true'),
   MODE: z.enum(['pull', 'push', 'tag']).optional(),
   SKIP_AUTH: z.string().optional().transform(val => val === 'true')
@@ -20,8 +22,22 @@ type Mode = 'pull' | 'push' | 'full' | 'tag';
 interface CopyAcrOptions {
   imageName: string;
   version: string;
-  sourceAcr: string;
-  targetAcr: string;
+  /**
+   * The name of the source Azure Container Registry (e.g., mysourceacr)
+   */
+  sourceAcrResourceName: string;
+  /**
+   * The name of the target Azure Container Registry (e.g., mytargetacr)
+   */
+  targetAcrResourceName: string;
+  /**
+   * The URL of the source Azure Container Registry (e.g., mysourceacr-ef9348.azurecr.io)
+   */
+  sourceRegistryUrl: string;
+  /**
+   * The URL of the target Azure Container Registry (e.g., mytargetacr-ef9348.azurecr.io)
+   * */
+  targetRegistryUrl: string;
   dryRun: boolean;
   mode: Mode;
   skipAuth: boolean;
@@ -49,23 +65,23 @@ async function validateEnvironment(): Promise<EnvConfig> {
   }
 }
 
-async function authenticateAcr(acrUrl: string, dryRun: boolean, skipAuth: boolean): Promise<void> {
+async function authenticateAcr(acrResourceName: string, dryRun: boolean, skipAuth: boolean): Promise<void> {
   if (skipAuth) {
-    console.log(`⏭️  Skipping authentication to ${acrUrl} (handled externally)`);
+    console.log(`⏭️  Skipping authentication to ${acrResourceName} (handled externally)`);
     return;
   }
 
   if (dryRun) {
-    console.log(`🔍 [DRY RUN] Would authenticate to ${acrUrl}`);
+    console.log(`🔍 [DRY RUN] Would authenticate to ${acrResourceName}`);
     return;
   }
 
   try {
-    console.log(`🔍 Authenticating to ${acrUrl}...`);
-    await execa('az', ['acr', 'login', '--name', acrUrl.replace('.azurecr.io', '')]);
-    console.log(`✅ Authenticated to ${acrUrl}`);
+    console.log(`🔍 Authenticating to ${acrResourceName}...`);
+    await execa('az', ['acr', 'login', '--name', acrResourceName]);
+    console.log(`✅ Authenticated to ${acrResourceName}`);
   } catch (error) {
-    throw new AcrCopyError(`Failed to authenticate to ${acrUrl}`, error as Error);
+    throw new AcrCopyError(`Failed to authenticate to ${acrResourceName}`, error as Error);
   }
 }
 
@@ -122,26 +138,26 @@ async function pushImage(targetImage: string, dryRun: boolean): Promise<void> {
 }
 
 export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
-  const { imageName, version, sourceAcr, targetAcr, dryRun, mode, skipAuth } = options;
+  const { imageName, version, sourceRegistryUrl, targetRegistryUrl, dryRun, mode, skipAuth, sourceAcrResourceName, targetAcrResourceName } = options;
 
   try {
     const imageBase = imageName.includes(':') ? imageName.split(':')[0] : imageName;
-    const finalTarget = `${targetAcr}/${imageBase}:${version}`;
-    const sourceImage = `${sourceAcr}/${imageName}:${version}`;
+    const finalTarget = `${targetRegistryUrl}/${imageBase}:${version}`;
+    const sourceImage = `${sourceRegistryUrl}/${imageName}:${version}`;
 
     switch (mode) {
       case 'pull': {
         console.log(`🔄 Running in PULL mode: ${imageName}`);
-        await authenticateAcr(sourceAcr, dryRun, skipAuth);
-        const sourceImage = await pullImage(sourceAcr, imageName, version, dryRun);
-        await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
+        await authenticateAcr(sourceAcrResourceName, dryRun, skipAuth);
+        const sourceImage = await pullImage(sourceRegistryUrl, imageName, version, dryRun);
+        await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
         console.log(`✅ Pull completed: ${imageName} pulled and tagged as ${finalTarget}`);
         break;
       }
 
       case 'push': {
         console.log(`🔄 Running in PUSH mode: ${finalTarget}`);
-        await authenticateAcr(targetAcr, dryRun, skipAuth);
+        await authenticateAcr(targetAcrResourceName, dryRun, skipAuth);
         await pushImage(finalTarget, dryRun);
         console.log(`✅ Push completed: ${finalTarget}`);
         break;
@@ -149,7 +165,7 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
 
       case 'tag': {
         console.log(`🔄 Running in TAG mode: ${imageName} → ${finalTarget}`);
-        const targetImage = await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
+        const targetImage = await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
         console.log(`✅ Tag completed: ${sourceImage} tagged as ${targetImage}`);
         break;
       }
@@ -157,11 +173,11 @@ export async function copyAcrImage(options: CopyAcrOptions): Promise<void> {
       case 'full':
       default: {
         console.log(`🔄 Running in FULL mode: ${imageName} → ${finalTarget}`);
-        await authenticateAcr(sourceAcr, dryRun, skipAuth);
-        await authenticateAcr(targetAcr, dryRun, skipAuth);
+        await authenticateAcr(sourceAcrResourceName, dryRun, skipAuth);
+        await authenticateAcr(targetAcrResourceName, dryRun, skipAuth);
 
-        const sourceImage = await pullImage(sourceAcr, imageName, version, dryRun);
-        const targetImage = await tagImage(sourceImage, targetAcr, imageName, version, dryRun);
+        const sourceImage = await pullImage(sourceRegistryUrl, imageName, version, dryRun);
+        const targetImage = await tagImage(sourceImage, targetRegistryUrl, imageName, version, dryRun);
         await pushImage(targetImage, dryRun);
 
         console.log(`✅ Copy completed: ${imageName} → ${finalTarget}`);
@@ -187,8 +203,10 @@ async function main(): Promise<void> {
   await copyAcrImage({
     imageName: env.IMAGE_NAME,
     version: env.VERSION,
-    sourceAcr: env.SOURCE_ACR,
-    targetAcr: env.TARGET_ACR,
+    sourceAcrResourceName: env.SOURCE_ACR_RESOURCE_NAME,
+    targetAcrResourceName: env.TARGET_ACR_RESOURCE_NAME,
+    sourceRegistryUrl: env.SOURCE_CONTAINER_REGISTRY_URL,
+    targetRegistryUrl: env.TARGET_CONTAINER_REGISTRY_URL,
     dryRun: env.DRY_RUN || false,
     mode: env.MODE || 'full',
     skipAuth: env.SKIP_AUTH || false
